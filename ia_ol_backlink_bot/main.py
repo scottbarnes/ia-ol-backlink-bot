@@ -141,7 +141,7 @@ def update_backlink_items(backlink_items: list[Any], ol: OpenLibrary, db: Databa
         edition.save(comment="Linking back to Internet Archive.")
         update_backlink_item_status(status=1, rowid=item.id, db=db)
 
-        time.sleep(.8)
+        time.sleep(float(SETTINGS["ocaid_add_delay"]))
 
 
 def get_input_filename(watch_dir: str) -> str:
@@ -222,7 +222,7 @@ if __name__ == "__main__":
     if not d.exists():
         d.mkdir()
 
-    db = Database(name=SETTINGS["sqlite"])
+    db = Database(name="files/" + SETTINGS["sqlite"])
 
     # ol = get_ol_connection(user=BOT_USER, password=BOT_PASSWORD, base_url="https://openlibrary.org")
     ol = get_ol_connection(user=BOT_USER, password=BOT_PASSWORD, base_url="http://192.168.0.11:8080")

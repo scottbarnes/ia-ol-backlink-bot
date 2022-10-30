@@ -50,3 +50,4 @@ build-backend = "poetry.core.masonry.api"
 [tool.backlink]
 watch_dir = "watch_dir"
 sqlite = "sqlite.db"
+ocaid_add_delay = ".8"

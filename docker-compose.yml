@@ -9,5 +9,15 @@ services:
       - .env
     volumes:
       - "./watch_dir:/code/watch_dir"
-      # - "./sqlite.db:/code/sqlite.db"
-    
+      - "./files:/code/files"
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8081:8080
+    environment:
+      ADMINER_DESIGN: dracula
+    volumes:
+      - "./login-password-less.php:/var/www/html/plugins-enabled/login-password-less.php"
+      - "./files:/var/www/html/files"
