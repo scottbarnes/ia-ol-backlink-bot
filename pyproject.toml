@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "ol-ia-backlink-bot"
+version = "0.1.0"
+description = ""
+authors = ["Scott Barnes <scottreidbarnes@gmail.com>"]
+readme = "README.md"
+packages = [{include = "ol_ia_backlink_bot"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pytest = "^7.2.0"
+openlibrary-client = {git = "https://github.com/internetarchive/openlibrary-client.git"}
+toml = "^0.10.2"
+requests = "^2.28.1"
+rich = "^12.6.0"
+
+[tool.poetry.group.dev.dependencies]
+ipython = "^8.5.0"
+black = "^22.10.0"
+isort = "^5.10.1"
+flake8-simplify = "^0.19.3"
+
+[tool.black]
+line-length = 120
+target-version = ['py311']
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+  disallow_any_generics = true
+  disallow_untyped_decorators = false
+  disallow_untyped_defs = true
+  exclude = ['tests/']
+  ignore_missing_imports = true
+  no_site_packages = true
+  pretty = true
+  scripts_are_modules = true
+  show_error_codes = true
+  show_error_context = true
+  strict = true
+  strict_optional = true
+  warn_return_any = true
+
+  [[tool.mypy.overrides]]
+    module = "tests.*"
+    ignore_errors = true
+
+[tool.backlink]
+watch_dir = "watch_dir"
+sqlite = "sqlite.db"

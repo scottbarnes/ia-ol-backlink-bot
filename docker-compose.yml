@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+  backlink:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - "./watch_dir:/code/watch_dir"
+      # - "./sqlite.db:/code/sqlite.db"
+    
