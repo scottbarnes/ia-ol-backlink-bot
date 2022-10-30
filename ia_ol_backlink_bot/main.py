@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any, Iterator
 
 # import requests
-import toml
 from constants import SETTINGS
 from database import Database
 from olclient.openlibrary import OpenLibrary
@@ -104,6 +103,13 @@ def get_backitems_needing_update(db: Database) -> list[Any]:
 
 
 def update_backlink_item_status(status: int, rowid: int, db: Database) -> None:
+    """
+    After processing an Edition, record the status in the database.
+        0: unprocessed
+        1: added by this script
+        2: added elsewhere (i.e. the parsed TSV said the Edition needed linking, but something else updated it.)
+    """
+
     db.execute(f"UPDATE link_items SET status = {status} WHERE rowid = {rowid}")
     db.commit()
 
@@ -114,8 +120,8 @@ def update_backlink_items(backlink_items: list[Any], ol: OpenLibrary, db: Databa
     Go through each backlink_item and update it, both on Open Library, and in the local DB.
     """
     for backlink_item in backlink_items:
-        id, edition_id, ocaid, status = backlink_item
-        item = BacklinkItem(edition_id, ocaid, status, id)
+        _id, edition_id, ocaid, status = backlink_item
+        item = BacklinkItem(edition_id, ocaid, status, _id)
         edition = get_edition(item.edition_id, ol)
         print(f"Updating {edition.title} ({edition.olid}) -> ocaid: {item.ocaid}")
 
@@ -139,7 +145,7 @@ def update_backlink_items(backlink_items: list[Any], ol: OpenLibrary, db: Databa
 
 
 def get_input_filename(watch_dir: str) -> str:
-    """Check {watch_dir} for any files. Returns name of the 'first' one as a string."""
+    """Check {watch_dir} for any files ending in *.tsv. Returns name of the 'first' one as a string."""
     input_files = Path(watch_dir).glob("*.tsv")
     try:
         filename = str(next(input_files))
@@ -158,7 +164,7 @@ def delete_file(filename: str) -> None:
 def add_new_items_to_db(watch_dir: str, db: Database) -> bool:
     """
     Check for new items on disk, and if there are, populate DB with them.
-    The bool return value is so we know whether query status for new items in need of updating on OL.
+    The bool return value is so we know whether to query the "status" key for new items in need of updating on OL.
     """
     input_file = get_input_filename(watch_dir)
     if input_file == "":
@@ -171,6 +177,7 @@ def add_new_items_to_db(watch_dir: str, db: Database) -> bool:
 
 
 def db_initalized(db: Database) -> bool:
+    """Return True if the DB is initialized--i.e. return True if populate_db() has run."""
     table_count = db.query("SELECT name FROM sqlite_schema WHERE type='table' AND name='link_items'")
     return len(table_count) > 0
 
@@ -183,16 +190,15 @@ def main(watch_dir: str, ol: OpenLibrary, db: Database) -> None:
         - go to Open Library and try to update any items with status == 0
         - update the SQLite DB with status == 1 for a successful update, and 2 if t was already updated.
     """
-    # The first time this runs there won't be an SQLite file yet with the appropriate table, so 
-    # don't try to add any files unless that table exists. This is for when there are no new items
-    # added, but there are more items in the DB that need to be updated on Open Library.
+    # The first time this runs, the DB is not yet initialized and doesn't have the link_items table,
+    # therefore only try to add existing items if the DB is already initialized (via adding from a file).
     if db_initalized(db):
-        print("Getting new items from DB")
-        new_backlink_items = get_backitems_needing_update(db)
+        print("Checking the database for existing backlink items not yet added to Open Library.")
+        existing_items = get_backitems_needing_update(db)
 
-        if new_backlink_items:
-            print("Updating backlink items")
-            update_backlink_items(new_backlink_items, ol, db)
+        if existing_items:
+            print("Found existing items to update. Updating them now.")
+            update_backlink_items(existing_items, ol, db)
 
     while True:
 
@@ -200,11 +206,11 @@ def main(watch_dir: str, ol: OpenLibrary, db: Database) -> None:
         items_added_to_db = add_new_items_to_db(watch_dir, db)
 
         if items_added_to_db:
-            print("Getting new items from DB")
+            print("Looking for new backlink items.")
             new_backlink_items = get_backitems_needing_update(db)
 
         if new_backlink_items:
-            print("Updating backlink items")
+            print("Unprocessed items found. Updating.")
             update_backlink_items(new_backlink_items, ol, db)
 
         time.sleep(10)

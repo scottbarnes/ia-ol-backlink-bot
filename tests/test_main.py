@@ -142,7 +142,6 @@ def test_update_backlink_items(get_ol: OpenLibrary, get_db: Database) -> None:
     assert odyssey.source_records == ["ia:odysseybookiv00home"]
 
     assert db.query("SELECT * FROM link_items") == expected
-    assert db.query("SELECT name FROM sqlite_schema WHERE type='table' AND name='link_items'") == "blob"
 
 
 def test_get_input_filename(tmp_path) -> None:
