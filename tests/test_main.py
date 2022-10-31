@@ -8,11 +8,17 @@ from olclient.openlibrary import OpenLibrary
 
 # from ia_ol_backlink_bot.constants import SETTINGS
 from ia_ol_backlink_bot.database import Database
-from ia_ol_backlink_bot.main import (can_add_ocaid, can_add_source_record,
-                                     delete_file, get_backitems_needing_update,
-                                     get_edition, get_input_filename,
-                                     get_ol_connection, main, populate_db,
-                                     update_backlink_items)
+from ia_ol_backlink_bot.main import (
+    can_add_ocaid,
+    delete_file,
+    get_backitems_needing_update,
+    get_edition,
+    get_input_filename,
+    get_ol_connection,
+    main,
+    populate_db,
+    update_backlink_items,
+)
 
 USER = os.environ["test_user"]
 PASSWORD = os.environ["test_password"]
@@ -83,18 +89,18 @@ def test_can_add_ocaid() -> None:
     assert can_add_ocaid(edition_with_ocaid) is False
 
 
-def test_can_get_source_record() -> None:
-    """can_add_source_record should only be True when there's no source_records or there's no ia entry."""
-    edition_without_source_records = FakeEdition()
-    assert can_add_source_record(edition_without_source_records) is True
+# def test_can_get_source_record() -> None:
+#     """can_add_source_record should only be True when there's no source_records or there's no ia entry."""
+#     edition_without_source_records = FakeEdition()
+#     assert can_add_source_record(edition_without_source_records) is True
 
-    edition_without_ia_source_record = FakeEdition()
-    edition_without_ia_source_record.source_records = ["blob:what"]
-    assert can_add_source_record(edition_without_ia_source_record) is True
+#     edition_without_ia_source_record = FakeEdition()
+#     edition_without_ia_source_record.source_records = ["blob:what"]
+#     assert can_add_source_record(edition_without_ia_source_record) is True
 
-    edition_with_ia_source_record = FakeEdition()
-    edition_with_ia_source_record.source_records = ["ia:existing_record"]
-    assert can_add_source_record(edition_with_ia_source_record) is False
+#     edition_with_ia_source_record = FakeEdition()
+#     edition_with_ia_source_record.source_records = ["ia:existing_record"]
+#     assert can_add_source_record(edition_with_ia_source_record) is False
 
 
 def test_get_edition(get_ol) -> None:

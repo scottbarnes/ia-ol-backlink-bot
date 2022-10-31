@@ -41,14 +41,6 @@ def can_add_ocaid(edition: Any) -> bool:
     return edition.ocaid == ""
 
 
-def can_add_source_record(edition: Any) -> bool:
-    """It's only okay to add a source record if there isn't one there already."""
-    if not hasattr(edition, "source_records"):
-        return True
-
-    return not any(item for item in edition.source_records if "ia:" in item)
-
-
 def get_ol_connection(user: str, password: str, base_url: str = "https://openlibrary.org") -> OpenLibrary:
     C = namedtuple("Credentials", ["username", "password"])
     credentials = C(user, password)
@@ -131,12 +123,10 @@ def update_backlink_items(backlink_items: list[Any], ol: OpenLibrary, db: Databa
             update_backlink_item_status(status=2, rowid=item.id, db=db)
             continue
 
-        # This and can_add_ocaid should maybe just be refactored into add_X, and it can return an error/None or something.
-        if can_add_source_record(edition):
-            if hasattr(edition, "source_records"):
-                edition.source_records.append(f"ia:{item.ocaid}")
-            else:
-                edition.source_records = [f"ia:{item.ocaid}"]
+        if hasattr(edition, "source_records") and f"ia:{item.ocaid}" not in edition.source_records:
+            edition.source_records.append(f"ia:{item.ocaid}")
+        else:
+            edition.source_records = [f"ia:{item.ocaid}"]
 
         edition.save(comment="Linking back to Internet Archive.")
         update_backlink_item_status(status=1, rowid=item.id, db=db)
