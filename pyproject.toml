@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "ol-ia-backlink-bot"
+name = "ia-ol-backlink-bot"
 version = "0.1.0"
 description = ""
 authors = ["Scott Barnes <scottreidbarnes@gmail.com>"]
 readme = "README.md"
-packages = [{include = "ol_ia_backlink_bot"}]
+packages = [{include = "ia_ol_backlink_bot"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -13,12 +13,17 @@ openlibrary-client = {git = "https://github.com/internetarchive/openlibrary-clie
 toml = "^0.10.2"
 requests = "^2.28.1"
 rich = "^12.6.0"
+fastapi = {extras = ["all"], version = "^0.88.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
 
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.5.0"
 black = "^22.10.0"
 isort = "^5.10.1"
 flake8-simplify = "^0.19.3"
+
+[tool.poetry.scripts]
+start = "ia_ol_backlink_bot.main:start"
 
 [tool.black]
 line-length = 120
@@ -51,3 +56,4 @@ build-backend = "poetry.core.masonry.api"
 watch_dir = "watch_dir"
 sqlite = "sqlite.db"
 ocaid_add_delay = ".8"
+api_key_file = ".api_keys"

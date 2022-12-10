@@ -6,19 +6,14 @@ from typing import Iterable
 import pytest
 from olclient.openlibrary import OpenLibrary
 
+from ia_ol_backlink_bot.api import api_key_hash_in_db
 # from ia_ol_backlink_bot.constants import SETTINGS
-from ia_ol_backlink_bot.database import Database
-from ia_ol_backlink_bot.main import (
-    can_add_ocaid,
-    delete_file,
-    get_backitems_needing_update,
-    get_edition,
-    get_input_filename,
-    get_ol_connection,
-    main,
-    populate_db,
-    update_backlink_items,
-)
+from ia_ol_backlink_bot.database import Database, populate_db
+from ia_ol_backlink_bot.helpers import (delete_file, get_input_filename,
+                                        parse_tsv)
+from ia_ol_backlink_bot.main import (can_add_ocaid,
+                                     get_backitems_needing_update, get_edition,
+                                     get_ol_connection, update_backlink_items)
 
 USER = os.environ["test_user"]
 PASSWORD = os.environ["test_password"]
@@ -110,15 +105,35 @@ def test_get_edition(get_ol) -> None:
     assert edition.title == expected_title
 
 
+def test_parse_tsv() -> None:
+    expected = [
+        ("OL13517105M", "aliceimspiegella00carrrich", 0),
+        ("OL24173003M", "cu31924013200609", 0),
+        ("OL24755423M", "odysseybookiv00home", 0),
+    ]
+
+    result = parse_tsv(SEED_DATA)
+    assert expected == list(result)
+
+
 def test_populate_db(get_db: Database) -> None:
     db = get_db
+    # Analogue of Iterator[BacklinkRowItem]
+    parsed_input = iter(
+        [
+            ("OL13517105M", "aliceimspiegella00carrrich", 0),
+            ("OL24173003M", "cu31924013200609", 0),
+            ("OL24755423M", "odysseybookiv00home", 0),
+        ]
+    )
+
     expected = [
         (1, "OL13517105M", "aliceimspiegella00carrrich", 0),
         (2, "OL24173003M", "cu31924013200609", 0),
         (3, "OL24755423M", "odysseybookiv00home", 0),
     ]
 
-    populate_db(SEED_DATA, db)
+    populate_db(parsed_input, db)
     assert db.query("""SELECT * FROM link_items""") == expected
 
 
@@ -172,6 +187,19 @@ def test_get_input_filename(tmp_path) -> None:
     delete_file(str(first))
     input_file = get_input_filename(str(input_files))
     assert input_file == ""
+
+
+### web API tests
+def test_api_key_hash_in_db(tmp_path) -> None:
+    d: Path = tmp_path
+    API_KEYS_FILE = d / "api_key_file.txt"
+    # Write hash of 'testing'
+    API_KEYS_FILE.write_text(
+        "$pbkdf2-sha512$1$$.VvxfT82edesNCq5nKq3JpRXJvHWeAEjEFJ8lgSj1DXPUH1YA6X1YnIxQLeKC4mYj8/UY56pF6nklLIccaNPDg"
+    )
+    assert api_key_hash_in_db("testing", API_KEYS_FILE.as_posix()) is True
+    API_KEYS_FILE.write_text("$pbkdf2-sha512$1$$.MEH")
+    assert api_key_hash_in_db("testing", API_KEYS_FILE.as_posix()) is False
 
 
 # Because this uses 'live' local development data, this test fails if other tests run

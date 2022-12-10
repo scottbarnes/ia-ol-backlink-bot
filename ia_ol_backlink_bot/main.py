@@ -10,27 +10,28 @@ import os
 import sqlite3
 import time
 from collections import namedtuple
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from threading import Thread
+from typing import Any, Iterator, NoReturn
+
+import uvicorn
+# uvicorn reads this.
+from api import app
+from olclient.openlibrary import OpenLibrary
+from requests.exceptions import HTTPError
 
 # import requests
-from constants import SETTINGS
-from database import Database
-from olclient.openlibrary import OpenLibrary
-from rich.progress import track
+from ia_ol_backlink_bot.constants import DB, DB_NAME, SETTINGS
+from ia_ol_backlink_bot.database import (Database,
+                                         add_new_items_from_watch_dir,
+                                         db_initalized,
+                                         get_backitems_needing_update,
+                                         update_backlink_item_status)
+from ia_ol_backlink_bot.models import BacklinkItem, BacklinkItemRow
 
 # Set in .env and load into the env via the shell, or docker-compose if using that.
 BOT_USER = os.environ["bot_user"]
 BOT_PASSWORD = os.environ["bot_password"]
-
-
-@dataclass
-class BacklinkItem:
-    edition_id: str
-    ocaid: str
-    status: int = 0
-    id: int = 0
 
 
 def can_add_ocaid(edition: Any) -> bool:
@@ -53,59 +54,6 @@ def get_edition(id: str, ol: OpenLibrary) -> Any:
     return ol.Edition.get(id)
 
 
-def populate_db(in_tsv: str, db: Database) -> None:
-    """
-    Read in_tsv and populate db.
-    TODO: this should use attrs or Pydantic for input validation.
-    """
-
-    def get_backlink_items(in_tsv) -> Iterator[tuple[str, str, int]]:
-        parsed_data = Path(in_tsv)
-        with parsed_data.open(mode="r") as f:
-            reader = csv.reader(f, delimiter="\t")
-            for row in track(reader, description="Adding items to database..."):
-                backlink_item = BacklinkItem(edition_id=row[0], ocaid=row[1])
-
-                yield (backlink_item.edition_id, backlink_item.ocaid, backlink_item.status)
-
-    # Create the DB if necessary, or use the existing one.
-    try:
-        db.execute(
-            "CREATE TABLE link_items (rowid INTEGER PRIMARY KEY, edition_id TEXT, \
-                ocaid TEXT, status INTEGER)"
-        )
-
-        db.executemany(
-            "INSERT INTO link_items (edition_id, ocaid, status) VALUES (?, ?, ?)", get_backlink_items(in_tsv=in_tsv)
-        )
-        db.execute("CREATE INDEX idx_status ON link_items(status)")
-        db.execute("CREATE INDEX idx ON link_items(rowid)")
-        db.commit()
-
-    except sqlite3.OperationalError:
-        db.executemany(
-            "INSERT INTO link_items (edition_id, ocaid, status) VALUES (?, ?, ?)", get_backlink_items(in_tsv=in_tsv)
-        )
-        db.commit()
-
-
-def get_backitems_needing_update(db: Database) -> list[Any]:
-    """Get all items where status == 0, which signifies an update should be attempted on Open Library."""
-    return db.query("""SELECT * FROM link_items WHERE status = 0""")
-
-
-def update_backlink_item_status(status: int, rowid: int, db: Database) -> None:
-    """
-    After processing an Edition, record the status in the database.
-        0: unprocessed
-        1: added by this script
-        2: added elsewhere (i.e. the parsed TSV said the Edition needed linking, but something else updated it.)
-    """
-
-    db.execute(f"UPDATE link_items SET status = {status} WHERE rowid = {rowid}")
-    db.commit()
-
-
 def update_backlink_items(backlink_items: list[Any], ol: OpenLibrary, db: Database) -> None:
     """
     These should be Editions.
@@ -114,7 +62,13 @@ def update_backlink_items(backlink_items: list[Any], ol: OpenLibrary, db: Databa
     for backlink_item in backlink_items:
         _id, edition_id, ocaid, status = backlink_item
         item = BacklinkItem(edition_id, ocaid, status, _id)
-        edition = get_edition(item.edition_id, ol)
+
+        try:
+            edition = get_edition(item.edition_id, ol)
+        except HTTPError:
+            update_backlink_item_status(status=3, rowid=item.id, db=db)
+            continue
+
         print(f"Updating {edition.title} ({edition.olid}) -> ocaid: {item.ocaid}")
 
         if can_add_ocaid(edition):
@@ -134,86 +88,76 @@ def update_backlink_items(backlink_items: list[Any], ol: OpenLibrary, db: Databa
         time.sleep(float(SETTINGS["ocaid_add_delay"]))
 
 
-def get_input_filename(watch_dir: str) -> str:
-    """Check {watch_dir} for any files ending in *.tsv. Returns name of the 'first' one as a string."""
-    input_files = Path(watch_dir).glob("*.tsv")
-    try:
-        filename = str(next(input_files))
-    except StopIteration:
-        filename = ""
-
-    return filename
-
-
-def delete_file(filename: str) -> None:
-    file = Path(filename)
-    if file.is_file():
-        file.unlink()
-
-
-def add_new_items_to_db(watch_dir: str, db: Database) -> bool:
+class WatchAndProcessItems(Thread):
     """
-    Check for new items on disk, and if there are, populate DB with them.
-    The bool return value is so we know whether to query the "status" key for new items in need of updating on OL.
-    """
-    input_file = get_input_filename(watch_dir)
-    if input_file == "":
-        return False
+    Continually try to add items from the database.
 
-    populate_db(input_file, db)
-    delete_file(input_file)
-
-    return True
-
-
-def db_initalized(db: Database) -> bool:
-    """Return True if the DB is initialized--i.e. return True if populate_db() has run."""
-    table_count = db.query("SELECT name FROM sqlite_schema WHERE type='table' AND name='link_items'")
-    return len(table_count) > 0
-
-
-def main(watch_dir: str, ol: OpenLibrary, db: Database) -> None:
-    """
-    Monitor {watch_dir} looking for *.tsv files. If it finds them:
+    Also, monitor {watch_dir} looking for *.tsv files. If it finds them:
         - populate the SQLite DB with their contents
         - query the SQlite DB looking for items with status == 0
         - go to Open Library and try to update any items with status == 0
         - update the SQLite DB with status == 1 for a successful update, and 2 if t was already updated.
+
+    Note: this is only its own class to inherit from Thread.
     """
-    # The first time this runs, the DB is not yet initialized and doesn't have the link_items table,
-    # therefore only try to add existing items if the DB is already initialized (via adding from a file).
-    if db_initalized(db):
-        print("Checking the database for existing backlink items not yet added to Open Library.")
-        existing_items = get_backitems_needing_update(db)
 
-        if existing_items:
-            print("Found existing items to update. Updating them now.")
-            update_backlink_items(existing_items, ol, db)
+    def __init__(self, watch_dir: str, ol: OpenLibrary, db_name: str) -> None:
+        Thread.__init__(self)
+        self.watch_dir = watch_dir
+        self.ol = ol
+        self.db_name = db_name
 
-    while True:
+    def run(self):
+        # The first time IA <-> OL linker script runs, the DB is not yet initialized and doesn't have the
+        # link_items table, therefore only try to add existing items on-start if the DB is already
+        # initialized, and therefore might have unprocessed items that should be processed on-start.
 
-        new_backlink_items = []
-        items_added_to_db = add_new_items_to_db(watch_dir, db)
+        db = Database(name=self.db_name)
 
-        if items_added_to_db:
+        if db_initalized(db):
+            print("Checking the database for existing backlink items not yet added to Open Library.")
+            existing_items = get_backitems_needing_update(db)
+
+            if existing_items:
+                print("Found existing items to update. Updating them now.")
+                update_backlink_items(existing_items, self.ol, db)
+
+        # Enter watch-mode and continually monitor the watch dir for new files/entries.
+        while True:
+
+            new_backlink_items = []
+            add_new_items_from_watch_dir(self.watch_dir, db)
+
+            # if has_added_new_items:
+            #     print("Looking for new backlink items.")
             print("Looking for new backlink items.")
             new_backlink_items = get_backitems_needing_update(db)
 
-        if new_backlink_items:
-            print("Unprocessed items found. Updating.")
-            update_backlink_items(new_backlink_items, ol, db)
+            if new_backlink_items:
+                print("Unprocessed items found. Updating.")
+                update_backlink_items(new_backlink_items, self.ol, db)
 
-        time.sleep(10)
+            time.sleep(10)
 
 
-if __name__ == "__main__":
+def start() -> None:
+    """
+    Main entry point.
+
+    Create watch dir if needed, get on openlibrary-client connection, monitor the watch dir,
+    repeatedly try to add any new or existing link items, and start up the API.
+    """
     watch_dir = SETTINGS["watch_dir"]
     d = Path(watch_dir)
     if not d.exists():
         d.mkdir()
 
-    db = Database(name="files/" + SETTINGS["sqlite"])
-
     # ol = get_ol_connection(user=BOT_USER, password=BOT_PASSWORD, base_url="https://openlibrary.org")
     ol = get_ol_connection(user=BOT_USER, password=BOT_PASSWORD, base_url="http://192.168.0.11:8080")
-    main(watch_dir, ol, db)
+    watch_and_process_items = WatchAndProcessItems(watch_dir=watch_dir, ol=ol, db_name=DB_NAME)
+
+    # Monitor the watch dir and repeatdly try to add items on a thread so as not to block uvicorn.
+    watch_and_process_items.start()
+
+    # Load the API from api.py.
+    uvicorn.run("ia_ol_backlink_bot.main:app", host="0.0.0.0", port=5000, reload=True)
