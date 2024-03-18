@@ -30,6 +30,7 @@ from ia_ol_backlink_bot.database import (Database,
 from ia_ol_backlink_bot.models import BacklinkItem, BacklinkItemRow
 
 # Set in .env and load into the env via the shell, or docker-compose if using that.
+BASE_URL = os.environ["base_url"]
 BOT_USER = os.environ["bot_user"]
 BOT_PASSWORD = os.environ["bot_password"]
 
@@ -77,10 +78,10 @@ def update_backlink_items(backlink_items: list[Any], ol: OpenLibrary, db: Databa
             update_backlink_item_status(status=2, rowid=item.id, db=db)
             continue
 
-        if hasattr(edition, "source_records") and f"ia:{item.ocaid}" not in edition.source_records:
-            edition.source_records.append(f"ia:{item.ocaid}")
-        else:
-            edition.source_records = [f"ia:{item.ocaid}"]
+        # if hasattr(edition, "source_records") and f"ia:{item.ocaid}" not in edition.source_records:
+        #     edition.source_records.append(f"ia:{item.ocaid}")
+        # else:
+        #     edition.source_records = [f"ia:{item.ocaid}"]
 
         edition.save(comment="Linking back to Internet Archive.")
         update_backlink_item_status(status=1, rowid=item.id, db=db)
