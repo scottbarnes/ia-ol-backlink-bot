@@ -63,6 +63,8 @@ NOTE: There will not be any content in this database until an appropriate TSV fi
 
 The status of each item is tracked in an SQLite database to make it easy to query the status of each item, and [Adminer](https://www.adminer.org/) is included in `docker-compose.yml` to make it easier to run queries. However, because of password requirements, some setup is required first.
 
+### Setup
+
 - Create a file named `login-password-less.php` in the root directory and add the following contents:
 ```php
 <?php
@@ -74,13 +76,24 @@ require_once('plugins/login-password-less.php');
 return new AdminerLoginPasswordLess(
   password_hash("unhashed-password-here", PASSWORD_DEFAULT)
 );
+
 ```
+
+### Use
 - Login via http://localhost:8081/?sqlite=&username=&db=files%2Fsqlite.db. The username does not matter. For "System" select `SQLite3` and for password put your unhashed password. For "Database" enter `files/sqlite.db`.
 - For the `status` key, the values are as follows:
   - 0: item needs its `ocaid` updated.
   - 1: item has had its `ocaid` updated by this script.
   - 2: item has had its `ocaid` updated by something else between the time reconcile generated the report and the time this script tried to update the item.
   - 3: there was an error processing this entry.
+
+### Helpful queries in Adminer
+To simplify observation of how things are going, it be helpful to click on the "SQL command" link in the left, where the database is entered, and to enter the following query to see the output grouped by status (e.g. 0, 1, 2, or 3):
+```sql
+SELECT status, COUNT(status)
+FROM "link_items"
+GROUP BY status
+```
 
 # Testing
 Regrettably, I didn't mock anything for the tests, so it uses the local development environment. If someone is really motivated and wants to modify this and wishes to use the tests, let me know and I will update the documentation, or better, the tests. :)
